@@ -137,10 +137,30 @@ describe.skipIf(!posix)("iOS device adapter (fake pymobiledevice3 + fake helper)
     const devices = await adapter.discover(settings(), signal());
     expect(devices.map((d) => [d.name, d.state])).toEqual([
       ["Test iPhone", "connected"],
-      ["Old iPad", "connected"],
       ["Locked Down", "permission-required"],
+      ["Old iPad", "connected"],
     ]);
-    expect(devices[1]).toMatchObject({ connection: "network", osName: "iPadOS" });
+    expect(devices[2]).toMatchObject({ connection: "network", osName: "iPadOS", wifi: "on" });
+  });
+
+  it("offers Wi-Fi access for a cabled device, sets it, and keeps the USB entry when listed twice", async () => {
+    const before = await adapter.discover(settings(), signal());
+    const phone = before.find((d) => d.name === "Test iPhone")!;
+    expect(phone).toMatchObject({ connection: "usb", wifi: "off" });
+    expect(phone.actions?.map((a) => a.id)).toContain("enable-wifi");
+    // Listed on both USB and Wi-Fi: one device, on the cable, already Wi-Fi ready.
+    expect(before.filter((d) => d.name === "Locked Down")).toHaveLength(1);
+    expect(before.find((d) => d.name === "Locked Down")).toMatchObject({ connection: "usb", wifi: "on" });
+
+    await expect(adapter.runAction(phone, "enable-wifi", settings())).resolves.toMatch(/can now be used over Wi-Fi/);
+    expect(fake.calls()).toContain("pymobiledevice3 lockdown wifi-connections --udid 00008110-AAA on");
+    const after = (await adapter.discover(settings(), signal())).find((d) => d.name === "Test iPhone")!;
+    expect(after.wifi).toBe("on");
+    expect(after.actions?.map((a) => a.id)).toContain("disable-wifi");
+    await adapter.runAction(after, "disable-wifi", settings());
+
+    const ipad = before.find((d) => d.name === "Old iPad")!;
+    await expect(adapter.runAction(ipad, "enable-wifi", settings())).rejects.toThrow(/with a cable/);
   });
 
   it("iOS 17+: one helper holds the location, accepts updates and clears on stop", async () => {

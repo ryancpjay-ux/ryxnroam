@@ -36,10 +36,12 @@ export interface DeviceInfo {
   isTest?: boolean;
   /** Whether stopping restores the device's real location. */
   restoresOnStop: boolean;
+  /** iPhone/iPad only: whether the device accepts connections over Wi-Fi (Finder's “Show … when on Wi-Fi”). */
+  wifi?: "on" | "off";
 }
 
 export interface DeviceAction {
-  id: "mount-ddi" | "recheck";
+  id: "mount-ddi" | "recheck" | "enable-wifi" | "disable-wifi";
   label: string;
   description: string;
 }

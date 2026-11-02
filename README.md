@@ -86,7 +86,7 @@ Why not LocationSimulator's backend? Its published source (libimobiledevice + cl
 
 ## Using ryxnroam
 
-1. **Connect** — boot a simulator, start an emulator, or plug in a device. It appears in the device selector (top-left); the status pill in the top bar always shows its state.
+1. **Connect** — boot a simulator, start an emulator, or plug in a device. It appears in the device selector (top-left); the status pill in the top bar always shows its state. The first time an iPhone or iPad is plugged in, ryxnroam offers **Use over Wi-Fi** (the same setting as Finder's *Show this iPhone when on Wi-Fi*); after that it works without the cable on the same network. Turn it off in **Settings › Devices** while the device is plugged in.
 2. **Choose** — click the map, drag the pin, search (⌘K / Ctrl+K), paste coordinates in any common format (`40.6892, -74.0445`, `40°41′21″N 74°02′40″W`), or right-click for more.
 3. **Preview** — the pin and map move; nothing is sent. The panel says *Preview only* until you start.
 4. **Start simulation** — confirms (optional), then waits for the device tool. The state turns active only after the tool confirms. While active, the top bar turns white and a banner with a **Stop** button sits on the map.
@@ -107,6 +107,7 @@ Why not LocationSimulator's backend? Its published source (libimobiledevice + cl
 | Floating control panel: destination, lat/lng fields, preview, start/stop, route controls | ✅ |
 | Device discovery (simctl, pymobiledevice3, adb), polling with back-off, disconnect detection | ✅ (fake-tool verified) |
 | Explicit device preparation: mount developer disk image, re-check pairing/Developer Mode | ✅ (fake-tool verified) |
+| iPhone/iPad over Wi-Fi: turn on/off from the app (`pymobiledevice3 lockdown wifi-connections`), no Finder needed | ✅ (fake-tool verified; Wi-Fi state read from a real iPad) |
 | Location simulation controller with confirmation kinds (`exit-ok`, `holding`, `playback`, `test`) | ✅ |
 | Route engine: interpolation along great circles, speed presets/custom, live speed change, pause/resume, loop, ETA | ✅ |
 | Road routing (OSRM) with honest straight-line fallback | ✅ |

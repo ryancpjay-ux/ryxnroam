@@ -2,7 +2,7 @@ import { Copy, Database, Download, Info, MapPin, RefreshCw, Smartphone, SlidersH
 import { useEffect, useState } from "react";
 import { PLACE_LANGUAGES } from "../../shared/defaults";
 import { formatSpeed, MAX_SPEED_KMH, MIN_SPEED_KMH } from "../../shared/geo";
-import type { LogLine, Settings } from "../../shared/types";
+import type { DeviceAction, LogLine, Settings } from "../../shared/types";
 import { api } from "../api";
 import { chooseDevice, confirmAction, toast, updateSettings, useStore, type SettingsTab } from "../store";
 import { deviceSubtitle, STATE_TEXT } from "./DeviceSelector";
@@ -154,9 +154,13 @@ function DevicesTab() {
   const loadLogs = () => void api.diagnostics.logs().then(setLogs);
   useEffect(loadLogs, []);
 
-  const runAction = async (deviceId: string, action: "mount-ddi" | "recheck", label: string, description: string) => {
+  const runAction = async (deviceId: string, action: DeviceAction["id"], label: string, description: string) => {
     if (action === "mount-ddi") {
       const c = await confirmAction({ title: `${label}?`, body: `${description} This runs pymobiledevice3 on your behalf and may take a minute.`, confirmLabel: "Mount" });
+      if (!c.ok) return;
+    }
+    if (action === "disable-wifi") {
+      const c = await confirmAction({ title: "Turn off Wi-Fi access?", body: `${description} You can turn it back on here while it's plugged in.`, confirmLabel: "Turn off" });
       if (!c.ok) return;
     }
     setBusy(deviceId + action);

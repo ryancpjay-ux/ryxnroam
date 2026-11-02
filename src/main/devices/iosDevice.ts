@@ -120,6 +120,7 @@ export class IosDeviceAdapter implements DeviceAdapter {
   private python: string | null = null;
   /** Tests substitute a fake helper; normally `python -u helpers/ios_location_helper.py`. */
   helperCommand: ((udid: string, mode: string) => { cmd: string; args: string[] } | null) | null = null;
+  private wifiCache = new Map<string, { at: number; value: "on" | "off" | null }>();
   private devModeCache = new Map<string, { at: number; value: boolean | null; error?: SimError }>();
 
   platformSupported(): boolean {
@@ -166,6 +167,10 @@ export class IosDeviceAdapter implements DeviceAdapter {
     const res = await this.exec(["usbmux", "list"], 20000, signal);
     if (res.code !== 0) throw new Error((res.stderr || res.stdout).trim().slice(-300) || "usbmux list failed");
     const entries = parseUsbmuxList(res.stdout);
+    const isNetwork = (e: UsbmuxEntry) => /network|wifi/i.test(e.ConnectionType ?? "");
+    // A device on a cable and on Wi-Fi is listed twice: keep the USB entry, remember it's reachable over Wi-Fi.
+    entries.sort((a, b) => Number(isNetwork(a)) - Number(isNetwork(b)));
+    const onNetwork = new Set(entries.filter(isNetwork).map((e) => e.UniqueDeviceID || e.Identifier));
     const seen = new Set<string>();
     const devices: DeviceInfo[] = [];
     for (const e of entries) {
@@ -173,6 +178,8 @@ export class IosDeviceAdapter implements DeviceAdapter {
       if (!udid || seen.has(udid)) continue;
       seen.add(udid);
       const major = majorVersion(e.ProductVersion);
+      const usb = !isNetwork(e);
+      const wifi = onNetwork.has(udid) ? "on" : usb ? await this.wifiState(udid, signal) : "on";
       const dev: DeviceInfo = {
         id: `ios-device:${udid}`,
         adapterId: "ios-device",
@@ -181,10 +188,24 @@ export class IosDeviceAdapter implements DeviceAdapter {
         model: e.ProductType,
         osName: e.DeviceClass === "iPad" ? "iPadOS" : "iOS",
         osVersion: e.ProductVersion,
-        connection: /network|wifi/i.test(e.ConnectionType ?? "") ? "network" : "usb",
+        connection: usb ? "usb" : "network",
         state: "connected",
         restoresOnStop: true,
+        wifi: wifi ?? undefined,
         actions: [
+          ...(usb && wifi === "off"
+            ? [
+                {
+                  id: "enable-wifi" as const,
+                  label: "Use over Wi-Fi",
+                  description:
+                    "Lets ryxnroam reach this device without a cable when both are on the same Wi-Fi — the same setting as Finder's “Show this device when on Wi-Fi”.",
+                },
+              ]
+            : []),
+          ...(usb && wifi === "on"
+            ? [{ id: "disable-wifi" as const, label: "Turn off Wi-Fi access", description: "Only reach this device over a cable." }]
+            : []),
           {
             id: "mount-ddi",
             label: "Mount developer disk image",
@@ -209,6 +230,17 @@ export class IosDeviceAdapter implements DeviceAdapter {
       devices.push(dev);
     }
     return devices;
+  }
+
+  /** EnableWifiConnections, read over USB (cached briefly; null when it can't be read). */
+  private async wifiState(udid: string, signal: AbortSignal): Promise<"on" | "off" | null> {
+    const cached = this.wifiCache.get(udid);
+    if (cached && Date.now() - cached.at < 60_000) return cached.value;
+    const res = await this.exec(["lockdown", "wifi-connections", "--udid", udid], 20000, signal).catch(() => null);
+    const m = res?.code === 0 ? res.stdout.match(/"EnableWifiConnections"\s*:\s*(true|false)/) : null;
+    const value = m ? (m[1] === "true" ? "on" : "off") : null;
+    this.wifiCache.set(udid, { at: Date.now(), value });
+    return value;
   }
 
   private async developerMode(settings: Settings, udid: string, signal: AbortSignal) {
@@ -255,9 +287,20 @@ export class IosDeviceAdapter implements DeviceAdapter {
   async runAction(device: DeviceInfo, action: DeviceAction["id"], settings: Settings): Promise<string> {
     if (action === "recheck") {
       this.devModeCache.delete(device.nativeId);
+      this.wifiCache.delete(device.nativeId);
       return "Device will be re-checked on the next scan.";
     }
     if (!this.tool) throw new Error("pymobiledevice3 is not available");
+    if (action === "enable-wifi" || action === "disable-wifi") {
+      if (device.connection !== "usb") throw new Error(`Connect ${device.name} with a cable to change this setting.`);
+      const on = action === "enable-wifi";
+      const res = await this.exec(["lockdown", "wifi-connections", "--udid", device.nativeId, on ? "on" : "off"], 30000, undefined, false);
+      this.wifiCache.delete(device.nativeId);
+      if (res.code !== 0) throw new Error(classifyToolError(res.stderr || res.stdout, "The device didn't accept the Wi-Fi setting.").message);
+      return on
+        ? `${device.name} can now be used over Wi-Fi. Unplug it any time — it stays available on the same network.`
+        : `${device.name} is now reachable over a cable only.`;
+    }
     const res = await this.exec(["mounter", "auto-mount", ...connectionArgs(settings, device.nativeId)], 240000, undefined, false);
     const out = (res.stdout + res.stderr).trim();
     if (res.code === 0) return out.split("\n").pop() || "Developer disk image mounted.";

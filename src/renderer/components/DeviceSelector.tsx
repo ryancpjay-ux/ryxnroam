@@ -23,7 +23,18 @@ export function DeviceIcon({ device }: { device: DeviceInfo | null }) {
 
 export function deviceSubtitle(d: DeviceInfo): string {
   const os = [d.osName, d.osVersion].filter(Boolean).join(" ");
-  const via = d.adapterId === "ios-simulator" ? "Simulator" : d.adapterId === "android-emulator" ? "Emulator" : d.connection === "network" ? "Wi-Fi" : d.isTest ? "Test adapter" : "USB";
+  const via =
+    d.adapterId === "ios-simulator"
+      ? "Simulator"
+      : d.adapterId === "android-emulator"
+        ? "Emulator"
+        : d.connection === "network"
+          ? "Wi-Fi"
+          : d.isTest
+            ? "Test adapter"
+            : d.wifi === "on"
+              ? "USB · Wi-Fi ready"
+              : "USB";
   return [os, via].filter(Boolean).join(" · ");
 }
 

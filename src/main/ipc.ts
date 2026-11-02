@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { clampSpeed } from "../shared/geo";
 import { buildRouteGpx } from "../shared/gpx";
 import { CH, EV, type DeepPartial, type NewSchedule, type Result } from "../shared/ipc";
-import type { AppInfo, Favorite, Library, SavedRoute, Settings } from "../shared/types";
+import type { AppInfo, DeviceAction, Favorite, Library, SavedRoute, Settings } from "../shared/types";
 import type { DeviceManager } from "./devices/manager";
 import type { History } from "./history";
 import { getLogs } from "./log";
@@ -93,9 +93,10 @@ export function registerIpc(d: Deps) {
   handle(CH.devicesSnapshot, () => d.devices.snapshot());
   handle(CH.devicesRefresh, () => d.devices.refresh());
   handle(CH.devicesAction, async (deviceId: unknown, action: unknown) => {
-    if (typeof deviceId !== "string" || (action !== "mount-ddi" && action !== "recheck")) return err("Invalid request");
+    const actions = ["mount-ddi", "recheck", "enable-wifi", "disable-wifi"];
+    if (typeof deviceId !== "string" || typeof action !== "string" || !actions.includes(action)) return err("Invalid request");
     try {
-      return ok(await d.devices.runAction(deviceId, action));
+      return ok(await d.devices.runAction(deviceId, action as DeviceAction["id"]));
     } catch (e) {
       return err(e);
     }

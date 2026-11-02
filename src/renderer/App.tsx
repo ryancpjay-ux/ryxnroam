@@ -9,6 +9,7 @@ import type { SearchHandle } from "./components/SearchBox";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
+import { WifiPrompt } from "./components/WifiPrompt";
 import { useResolvedTheme } from "./lib/useTheme";
 import { stopSimulation, useStore } from "./store";
 
@@ -62,6 +63,7 @@ export function App() {
       <FavoriteEditor />
       <RouteNamer />
       <ScheduleEditor />
+      <WifiPrompt />
       <ConfirmDialog />
       <Toasts placement="overlay" />
       {intro && (
