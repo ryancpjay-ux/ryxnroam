@@ -143,6 +143,29 @@ describe.skipIf(!posix)("iOS device adapter (fake pymobiledevice3 + fake helper)
     expect(devices[2]).toMatchObject({ connection: "network", osName: "iPadOS", wifi: "on" });
   });
 
+  it("lists devices without waiting on a slow Developer Mode check, then reports it on the next scan", async () => {
+    const fresh = new IosDeviceAdapter();
+    await fresh.probe(settings(), signal());
+    process.env.FAKE_AMFI_DELAY = "4";
+    try {
+      const t0 = Date.now();
+      const first = await fresh.discover(settings(), signal());
+      expect(Date.now() - t0).toBeLessThan(3500);
+      expect(first.map((d) => d.name)).toEqual(["Test iPhone", "Locked Down", "Old iPad"]);
+      // Status not known yet: the device is listed as connected, not guessed to be blocked.
+      expect(first.find((d) => d.name === "Locked Down")!.state).toBe("connected");
+      // One check per device, even if scans overlap while it runs.
+      await fresh.discover(settings(), signal());
+      await new Promise((r) => setTimeout(r, 3000));
+      const amfiCalls = fake.calls().filter((c) => c.startsWith("pymobiledevice3 amfi"));
+      expect(amfiCalls).toHaveLength(3);
+      const second = await fresh.discover(settings(), signal());
+      expect(second.find((d) => d.name === "Locked Down")!.state).toBe("permission-required");
+    } finally {
+      delete process.env.FAKE_AMFI_DELAY;
+    }
+  }, 20_000);
+
   it("offers Wi-Fi access for a cabled device, sets it, and keeps the USB entry when listed twice", async () => {
     const before = await adapter.discover(settings(), signal());
     const phone = before.find((d) => d.name === "Test iPhone")!;

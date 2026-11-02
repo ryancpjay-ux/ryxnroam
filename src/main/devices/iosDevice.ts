@@ -113,6 +113,21 @@ export function parseUsbmuxList(stdout: string): UsbmuxEntry[] {
 
 export const majorVersion = (v?: string) => Number.parseInt(v ?? "", 10) || 0;
 
+type DevModeEntry = { at: number; value: boolean | null; error?: SimError };
+
+/**
+ * How long one scan waits for a device's checks. Over Wi-Fi a lockdown query
+ * can take seconds (or time out if the device dozes), so a scan never waits on
+ * it: the device is listed straight away and the result lands on a later scan.
+ */
+const CHECK_BUDGET_MS = 1500;
+/** Developer Mode can only change with a restart, so a confirmed "on" is trusted for longer. */
+const DEV_MODE_ON_TTL_MS = 10 * 60_000;
+const CHECK_TTL_MS = 60_000;
+
+const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
+  Promise.race([p, new Promise<undefined>((r) => setTimeout(r, ms))]);
+
 export class IosDeviceAdapter implements DeviceAdapter {
   readonly id = "ios-device" as const;
   readonly label = "iPhone & iPad (pymobiledevice3)";
@@ -121,7 +136,9 @@ export class IosDeviceAdapter implements DeviceAdapter {
   /** Tests substitute a fake helper; normally `python -u helpers/ios_location_helper.py`. */
   helperCommand: ((udid: string, mode: string) => { cmd: string; args: string[] } | null) | null = null;
   private wifiCache = new Map<string, { at: number; value: "on" | "off" | null }>();
-  private devModeCache = new Map<string, { at: number; value: boolean | null; error?: SimError }>();
+  private devModeCache = new Map<string, DevModeEntry>();
+  /** Per-device checks still running, so overlapping scans share one query instead of starting another. */
+  private inFlight = new Map<string, Promise<unknown>>();
 
   platformSupported(): boolean {
     return process.platform === "darwin" || process.platform === "win32" || process.platform === "linux";
@@ -172,84 +189,116 @@ export class IosDeviceAdapter implements DeviceAdapter {
     entries.sort((a, b) => Number(isNetwork(a)) - Number(isNetwork(b)));
     const onNetwork = new Set(entries.filter(isNetwork).map((e) => e.UniqueDeviceID || e.Identifier));
     const seen = new Set<string>();
-    const devices: DeviceInfo[] = [];
-    for (const e of entries) {
+    const unique = entries.filter((e) => {
       const udid = e.UniqueDeviceID || e.Identifier;
-      if (!udid || seen.has(udid)) continue;
+      if (!udid || seen.has(udid)) return false;
       seen.add(udid);
-      const major = majorVersion(e.ProductVersion);
-      const usb = !isNetwork(e);
-      const wifi = onNetwork.has(udid) ? "on" : usb ? await this.wifiState(udid, signal) : "on";
-      const dev: DeviceInfo = {
-        id: `ios-device:${udid}`,
-        adapterId: "ios-device",
-        nativeId: udid,
-        name: e.DeviceName || e.ProductType || "iOS device",
-        model: e.ProductType,
-        osName: e.DeviceClass === "iPad" ? "iPadOS" : "iOS",
-        osVersion: e.ProductVersion,
-        connection: usb ? "usb" : "network",
-        state: "connected",
-        restoresOnStop: true,
-        wifi: wifi ?? undefined,
-        actions: [
-          ...(usb && wifi === "off"
-            ? [
-                {
-                  id: "enable-wifi" as const,
-                  label: "Use over Wi-Fi",
-                  description:
-                    "Lets ryxnroam reach this device without a cable when both are on the same Wi-Fi — the same setting as Finder's “Show this device when on Wi-Fi”.",
-                },
-              ]
-            : []),
-          ...(usb && wifi === "on"
-            ? [{ id: "disable-wifi" as const, label: "Turn off Wi-Fi access", description: "Only reach this device over a cable." }]
-            : []),
-          {
-            id: "mount-ddi",
-            label: "Mount developer disk image",
-            description:
-              "Downloads Apple's developer disk image for this iOS version and mounts it. Required once per device boot for location simulation.",
-          },
-          { id: "recheck", label: "Re-check device", description: "Check Developer Mode and pairing again." },
-        ],
-      };
-      if (major >= 16) {
-        const dm = await this.developerMode(settings, udid, signal);
-        if (dm.error) {
-          dev.state = "permission-required";
-          dev.stateDetail = dm.error.message;
-          dev.guidance = dm.error.detail;
-        } else if (dm.value === false) {
-          dev.state = "permission-required";
-          dev.stateDetail = "Developer Mode is off.";
-          dev.guidance = "On the device: Settings › Privacy & Security › Developer Mode, turn it on and restart.";
-        }
-      }
-      devices.push(dev);
+      return true;
+    });
+    return Promise.all(unique.map((e) => this.describeDevice(e, isNetwork(e), onNetwork, settings, signal)));
+  }
+
+  private async describeDevice(
+    e: UsbmuxEntry,
+    network: boolean,
+    onNetwork: Set<string | undefined>,
+    settings: Settings,
+    signal: AbortSignal,
+  ): Promise<DeviceInfo> {
+    const udid = (e.UniqueDeviceID || e.Identifier)!;
+    const major = majorVersion(e.ProductVersion);
+    const usb = !network;
+    const [wifi, dm] = await Promise.all([
+      onNetwork.has(udid) ? ("on" as const) : usb ? this.wifiState(udid, signal) : ("on" as const),
+      major >= 16 ? this.developerMode(settings, udid, signal) : null,
+    ]);
+    const dev: DeviceInfo = {
+      id: `ios-device:${udid}`,
+      adapterId: "ios-device",
+      nativeId: udid,
+      name: e.DeviceName || e.ProductType || "iOS device",
+      model: e.ProductType,
+      osName: e.DeviceClass === "iPad" ? "iPadOS" : "iOS",
+      osVersion: e.ProductVersion,
+      connection: usb ? "usb" : "network",
+      state: "connected",
+      restoresOnStop: true,
+      wifi: wifi ?? undefined,
+      actions: [
+        ...(usb && wifi === "off"
+          ? [
+              {
+                id: "enable-wifi" as const,
+                label: "Use over Wi-Fi",
+                description:
+                  "Lets ryxnroam reach this device without a cable when both are on the same Wi-Fi — the same setting as Finder's “Show this device when on Wi-Fi”.",
+              },
+            ]
+          : []),
+        ...(usb && wifi === "on"
+          ? [{ id: "disable-wifi" as const, label: "Turn off Wi-Fi access", description: "Only reach this device over a cable." }]
+          : []),
+        {
+          id: "mount-ddi",
+          label: "Mount developer disk image",
+          description:
+            "Downloads Apple's developer disk image for this iOS version and mounts it. Required once per device boot for location simulation.",
+        },
+        { id: "recheck", label: "Re-check device", description: "Check Developer Mode and pairing again." },
+      ],
+    };
+    if (dm?.error) {
+      dev.state = "permission-required";
+      dev.stateDetail = dm.error.message;
+      dev.guidance = dm.error.detail;
+    } else if (dm?.value === false) {
+      dev.state = "permission-required";
+      dev.stateDetail = "Developer Mode is off.";
+      dev.guidance = "On the device: Settings › Privacy & Security › Developer Mode, turn it on and restart.";
     }
-    return devices;
+    return dev;
+  }
+
+  /**
+   * Runs `check` for a device at most once at a time and waits for it no longer
+   * than the scan budget; until it lands, the last known (or unknown) value is used.
+   */
+  private async checked<T>(key: string, stale: T, check: () => Promise<T>): Promise<T> {
+    let running = this.inFlight.get(key) as Promise<T> | undefined;
+    if (!running) {
+      running = check().finally(() => this.inFlight.delete(key));
+      this.inFlight.set(key, running);
+    }
+    const done = await within(running, CHECK_BUDGET_MS);
+    return done === undefined ? stale : done;
   }
 
   /** EnableWifiConnections, read over USB (cached briefly; null when it can't be read). */
   private async wifiState(udid: string, signal: AbortSignal): Promise<"on" | "off" | null> {
     const cached = this.wifiCache.get(udid);
-    if (cached && Date.now() - cached.at < 60_000) return cached.value;
-    const res = await this.exec(["lockdown", "wifi-connections", "--udid", udid], 20000, signal).catch(() => null);
-    const m = res?.code === 0 ? res.stdout.match(/"EnableWifiConnections"\s*:\s*(true|false)/) : null;
-    const value = m ? (m[1] === "true" ? "on" : "off") : null;
-    this.wifiCache.set(udid, { at: Date.now(), value });
-    return value;
+    if (cached && Date.now() - cached.at < CHECK_TTL_MS) return cached.value;
+    return this.checked(`wifi:${udid}`, cached?.value ?? null, async () => {
+      const res = await this.exec(["lockdown", "wifi-connections", "--udid", udid], 20000, signal).catch(() => null);
+      const m = res?.code === 0 ? res.stdout.match(/"EnableWifiConnections"\s*:\s*(true|false)/) : null;
+      const value = m ? (m[1] === "true" ? "on" : "off") : null;
+      this.wifiCache.set(udid, { at: Date.now(), value });
+      return value;
+    });
   }
 
-  private async developerMode(settings: Settings, udid: string, signal: AbortSignal) {
+  private async developerMode(settings: Settings, udid: string, signal: AbortSignal): Promise<DevModeEntry> {
     const cached = this.devModeCache.get(udid);
-    if (cached && Date.now() - cached.at < 60_000) return cached;
+    if (cached && Date.now() - cached.at < (cached.value === true ? DEV_MODE_ON_TTL_MS : CHECK_TTL_MS)) return cached;
+    return this.checked(`dm:${udid}`, cached ?? { at: 0, value: null }, () => this.queryDeveloperMode(udid, signal));
+  }
+
+  private async queryDeveloperMode(udid: string, signal: AbortSignal): Promise<DevModeEntry> {
+    const t0 = Date.now();
     const res = await this.exec(["amfi", "developer-mode-status", "--udid", udid], 25000, signal).catch(
       (e: Error) => ({ code: -1, stdout: "", stderr: e.message, timedOut: false, signal: null }),
     );
-    let entry: { at: number; value: boolean | null; error?: SimError };
+    log.info(`Developer Mode check for ${udid.slice(0, 8)}… took ${Date.now() - t0} ms`);
+    let entry: DevModeEntry;
     if (res.code === 0 && /\btrue\b/i.test(res.stdout)) entry = { at: Date.now(), value: true };
     else if (res.code === 0 && /\bfalse\b/i.test(res.stdout)) entry = { at: Date.now(), value: false };
     else {
@@ -346,10 +395,13 @@ class HelperSession implements LocationSession {
   }
 
   private async start(signal?: AbortSignal): Promise<SimError | null> {
+    const t0 = Date.now();
     const proc = new JsonLineProcess(this.command.cmd, this.command.args);
     const first = await proc.waitForEvent(["ready", "fatal"], 90_000, signal);
     if (first?.event === "ready") {
-      log.info(`Helper connected to ${this.udid.slice(0, 8)}… via ${String(first.transport)} (pymobiledevice3 ${String(first.pmd3)})`);
+      log.info(
+        `Helper connected to ${this.udid.slice(0, 8)}… via ${String(first.transport)} in ${Date.now() - t0} ms (pymobiledevice3 ${String(first.pmd3)})`,
+      );
       proc.onEvent = (m: JsonMessage) => {
         if (m.event !== "lost" || this.proc !== proc) return;
         this.proc = null;

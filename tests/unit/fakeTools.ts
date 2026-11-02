@@ -64,6 +64,8 @@ case "$1" in
 JSON
   exit 0 ;;
   amfi)
+    # A device on slow Wi-Fi: the Developer Mode query takes this long.
+    if [ -n "$FAKE_AMFI_DELAY" ]; then sleep "$FAKE_AMFI_DELAY"; fi
     case "$*" in *DEVMODE-OFF*) echo "false" ;; *) echo "true" ;; esac
     exit 0 ;;
   mounter) echo "DeveloperDiskImage already mounted"; exit 1 ;;
