@@ -184,6 +184,7 @@ Configuration: [electron-builder.yml](electron-builder.yml), [build/entitlements
 * iOS 17+ needs ryxnroam open and the device connected for the whole simulation; closing ryxnroam, unplugging or locking the connection ends it (ryxnroam reports this).
 * The iOS helper depends on pymobiledevice3's Python API (`UserspaceRsdTunnel`, `DvtProvider`, `LocationSimulation`). A future pymobiledevice3 release that changes them would show a clear “couldn't use this pymobiledevice3 install” error.
 * iOS 17+ tunnels may require elevated privileges on some setups (e.g. `tunneld` mode); ryxnroam reports this rather than escalating itself.
+* iPhone/iPad: iOS's automatic time zone follows location, so simulating another country can move the device's clock to that time zone and leave it there after you stop. ryxnroam reminds you on stop; turn **Settings › General › Date & Time › Set Automatically** off and on to fix it.
 * Physical Android devices are not supported (needs an on-device mock-location app).
 * Android emulators keep their last fix after stop (they have no real GPS).
 * Schedules run only while ryxnroam is open; missed schedules are recorded as missed. Very long runs depend on the computer not sleeping (enable *Keep this computer awake*).

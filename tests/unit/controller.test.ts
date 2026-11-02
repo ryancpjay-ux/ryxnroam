@@ -161,6 +161,20 @@ describe("SimulationController (loopback test adapter)", () => {
     await t.ctl.stop();
   });
 
+  it("reminds about the iOS time zone after stopping on an iPhone or iPad", async () => {
+    const t = setup();
+    await t.refresh();
+    const ctl = t.ctl as unknown as { deps: { getDevice: (id: string) => DeviceInfo | undefined } };
+    const real = ctl.deps.getDevice;
+    ctl.deps.getDevice = (id) => {
+      const d = real(id);
+      return d && { ...d, adapterId: "ios-device", name: "Test iPad" };
+    };
+    await t.ctl.startLocation({ deviceId: "test:loopback", point: { lat: 35.66, lng: 139.7 } });
+    await t.ctl.stop();
+    expect(t.ctl.getState().note).toMatch(/Set Automatically/);
+  });
+
   it("shutdown restores the device and leaves no running engine", async () => {
     const t = setup();
     await t.refresh();

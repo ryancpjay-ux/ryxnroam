@@ -332,6 +332,9 @@ export class SimulationController extends EventEmitter {
         }
         if (!session.capabilities.restoresOnClear)
           note = `${device?.name ?? "The emulator"} keeps its last position — emulators have no real GPS to return to.`;
+        else if (this.state.adapterId === "ios-device")
+          // iOS's automatic time zone follows location and doesn't always switch back on its own.
+          note = `Location restored on ${this.state.deviceName ?? "the device"}. If its clock moved to another time zone, turn Settings › General › Date & Time › Set Automatically off and on.`;
       }
       this.finishHistory(this.run?.arrived ? "completed" : "stopped");
       this.run = null;
