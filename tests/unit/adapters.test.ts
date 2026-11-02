@@ -18,6 +18,8 @@ import { liveChildCount } from "../../src/main/exec";
 import { installFakeTools } from "./fakeTools";
 
 const settings = (): Settings => structuredClone(DEFAULT_SETTINGS);
+// The fake tools are POSIX shell scripts, which Windows can't execute; those suites run on macOS/Linux CI.
+const posix = process.platform !== "win32";
 const signal = () => new AbortController().signal;
 let fake: ReturnType<typeof installFakeTools>;
 
@@ -101,7 +103,7 @@ describe.skipIf(process.platform !== "darwin")("iOS Simulator adapter (fake xcru
   });
 });
 
-describe("Android emulator adapter (fake adb)", () => {
+describe.skipIf(!posix)("Android emulator adapter (fake adb)", () => {
   const adapter = new AndroidEmulatorAdapter();
 
   it("names emulators, refuses physical devices and sends geo fix as lng lat", async () => {
@@ -117,7 +119,7 @@ describe("Android emulator adapter (fake adb)", () => {
   });
 });
 
-describe("iOS device adapter (fake pymobiledevice3 + fake helper)", () => {
+describe.skipIf(!posix)("iOS device adapter (fake pymobiledevice3 + fake helper)", () => {
   const adapter = new IosDeviceAdapter();
   const helperLog = path.join(mkdtempSync(path.join(os.tmpdir(), "ryxnroam-helper-")), "helper.log");
   const fakeHelper = fileURLToPath(new URL("./fakeHelper.mjs", import.meta.url));
@@ -225,9 +227,11 @@ describe("helper discovery", () => {
     const direct = path.join(dir, "direct");
     writeFileSync(direct, `#!${process.execPath}\nimport x\n`);
     expect(pythonFromLauncher(direct)).toBe(process.execPath);
-    const viaEnv = path.join(dir, "env");
-    writeFileSync(viaEnv, "#!/usr/bin/env sh\n");
-    expect(pythonFromLauncher(viaEnv)).toMatch(/\/sh$/);
+    if (posix) {
+      const viaEnv = path.join(dir, "env");
+      writeFileSync(viaEnv, "#!/usr/bin/env sh\n");
+      expect(pythonFromLauncher(viaEnv)).toMatch(/\/sh$/);
+    }
     expect(pythonFromLauncher(path.join(dir, "missing"))).toBeNull();
   });
 });
