@@ -1,0 +1,52 @@
+# Builds installers on tag push (v*) and uploads them to a DRAFT GitHub release in this repository.
+# Publishing the draft is the approval step that makes the update visible to installed apps.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Build, sign (if a certificate is configured) and publish draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run build
+          if [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ]; then
+            npx electron-builder --mac --arm64 --x64 --publish always -c.mac.notarize=true
+          else
+            echo "::warning::No Apple signing credentials; producing an ad-hoc signed, un-notarized build."
+            npx electron-builder --mac --arm64 --x64 --publish always -c.mac.identity=- -c.mac.hardenedRuntime=false
+          fi
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Build and publish draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          npm run build
+          npx electron-builder --win --x64 --publish always

@@ -1,0 +1,53 @@
+{
+  "name": "ryxnroam",
+  "productName": "ryxnroam",
+  "version": "0.1.0",
+  "description": "Location simulation studio for devices and simulators you are authorized to test.",
+  "author": "Ryan J.",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:main": "node scripts/build-main.mjs",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && node --test --test-concurrency=1 tests/e2e/app.test.mjs",
+    "package:mac": "npm run build && electron-builder --mac --arm64 --x64 --publish never && node scripts/drop-foreign-mac-build.mjs",
+    "package:win": "npm run build && electron-builder --win --x64 --publish never",
+    "package:dir": "npm run build && electron-builder --dir --publish never",
+    "clean": "rm -rf dist release",
+    "icon": "electron scripts/make-icon.cjs",
+    "package:mac:unsigned": "npm run build && electron-builder --mac --arm64 --x64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false && node scripts/drop-foreign-mac-build.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "lucide-react": "^1.66.0",
+    "maplibre-gl": "^6.16.0",
+    "playwright": "^1.64.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "zustand": "^5.0.16"
+  },
+  "homepage": "https://github.com/ryancpjay-ux/ryxnroam",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryancpjay-ux/ryxnroam.git"
+  }
+}

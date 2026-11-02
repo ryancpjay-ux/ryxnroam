@@ -1,0 +1,80 @@
+# Packaging for ryxnroam. Releases go to this app's OWN repository, never ryxnontop's.
+appId: com.ryanj.ryxnroam
+productName: ryxnroam
+copyright: Copyright © 2026 Ryan J.
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - "!dist/**/*.map"
+  - package.json
+  - LICENSE
+
+# The GPL-3.0 iOS helper ships as a separate file next to the app, with its licence.
+extraResources:
+  - from: helpers
+    to: helpers
+    filter: ["ios_location_helper.py", "COPYING", "README.md"]
+
+# Renderer libraries are bundled by Vite; only electron-updater ships as a runtime dependency.
+npmRebuild: false
+
+publish:
+  - provider: github
+    owner: ryancpjay-ux
+    repo: ryxnroam
+    # Draft releases stay invisible to the in-app updater until you publish them,
+    # which is how an update gets "approved".
+    releaseType: draft
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  minimumSystemVersion: "12.0"
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarization only runs when CI passes -c.mac.notarize=true with Apple credentials set.
+  notarize: false
+  extendInfo:
+    NSHighResolutionCapable: true
+
+dmg:
+  title: ${productName} ${version}
+  contents:
+    - x: 150
+      y: 190
+    - x: 390
+      y: 190
+      type: link
+      path: /Applications
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+  legalTrademarks: ryxnroam
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ryxnroam
+  uninstallDisplayName: ryxnroam
+  # Saved locations and routes stay in %APPDATA%\ryxnroam unless the user removes them.
+  deleteAppDataOnUninstall: false

@@ -1,0 +1,73 @@
+/*
+ * ryxnroam design tokens — carried over from ryxnontop's monochrome "mist"
+ * system: pure black/white ink, hairline white borders, inverse highlights,
+ * 24px window radius, 20px panels, 15px top bar and spring-like easing.
+ */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --r-window: 24px;
+  --r-panel: 20px;
+  --r-bar: 15px;
+  --r-card: 13px;
+  --r-control: 10px;
+  --r-field: 9px;
+  --r-pill: 999px;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #ffffff;
+  --muted: #b8b8b8;
+  --faint: #828282;
+  --line: #ffffff33;
+  --line-soft: #ffffff1c;
+  --surface: #101010;
+  --secondary: #202020;
+  --hover: #ffffff10;
+  --press: #ffffff1a;
+  --inverse: #ffffff;
+  --inverse-ink: #000000;
+  --app-bg: rgba(0, 0, 0, 0.91);
+  --glass: rgba(12, 12, 12, 0.8);
+  --glass-strong: rgba(10, 10, 10, 0.92);
+  --scrim: #0808089c;
+  --shadow-panel: 0 24px 60px #00000066, inset 0 1px 0 #ffffff08;
+  --shadow-pop: 0 18px 50px #000000aa;
+  --skeleton-a: #1a1a1a;
+  --skeleton-b: #262626;
+  /* Signals stay small: dots, rings and hairlines only. */
+  --ok: oklch(0.8 0.14 155);
+  --warn: oklch(0.83 0.13 85);
+  --bad: oklch(0.7 0.18 25);
+  --info: oklch(0.74 0.11 240);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ink: #000000;
+  --muted: #505050;
+  --faint: #7a7a7a;
+  --line: #00000033;
+  --line-soft: #0000001a;
+  --surface: #ffffff;
+  --secondary: #f0f0f0;
+  --hover: #0000000b;
+  --press: #00000014;
+  --inverse: #000000;
+  --inverse-ink: #ffffff;
+  --app-bg: rgba(255, 255, 255, 0.97);
+  --glass: rgba(255, 255, 255, 0.84);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --scrim: #e8e8e8a6;
+  --shadow-panel: 0 24px 60px #00000022;
+  --shadow-pop: 0 18px 50px #00000033;
+  --skeleton-a: #ececec;
+  --skeleton-b: #f6f6f6;
+  --ok: oklch(0.58 0.14 155);
+  --warn: oklch(0.62 0.13 75);
+  --bad: oklch(0.56 0.19 25);
+  --info: oklch(0.55 0.13 240);
+}
