@@ -12,7 +12,7 @@ import { DEFAULT_SETTINGS } from "../../src/shared/defaults";
 import type { Settings } from "../../src/shared/types";
 import { classifyToolError } from "../../src/main/devices/adapter";
 import { AndroidEmulatorAdapter, parseAdbDevices } from "../../src/main/devices/androidEmulator";
-import { IosDeviceAdapter, connectionArgs, helperScriptPath, parseUsbmuxList, pythonFromLauncher } from "../../src/main/devices/iosDevice";
+import { IosDeviceAdapter, connectionArgs, helperScriptPath, parseLockdownInfo, parseUdidList, pythonFromLauncher } from "../../src/main/devices/iosDevice";
 import { IosSimulatorAdapter, parseSimctlDevices } from "../../src/main/devices/iosSimulator";
 import { liveChildCount } from "../../src/main/exec";
 import { installFakeTools } from "./fakeTools";
@@ -57,9 +57,11 @@ describe("output parsers", () => {
     expect(list[1].guidance).toMatch(/mock location app/);
   });
 
-  it("parses usbmux JSON even with leading noise", () => {
-    expect(parseUsbmuxList('warning: something\n[{"UniqueDeviceID":"X"}]')).toEqual([{ UniqueDeviceID: "X" }]);
-    expect(parseUsbmuxList("no json")).toEqual([]);
+  it("parses usbmux UDID lists and lockdown info even with leading noise", () => {
+    expect(parseUdidList('warning: something\n[\n  "AAA",\n  "BBB"\n]')).toEqual(["AAA", "BBB"]);
+    expect(parseUdidList("no json")).toEqual([]);
+    expect(parseLockdownInfo('note\n{"DeviceName":"X","ProductVersion":"18.1"}')).toEqual({ DeviceName: "X", ProductVersion: "18.1" });
+    expect(parseLockdownInfo("no json")).toBeNull();
   });
 
   it("maps tool errors to actionable categories", () => {
@@ -141,6 +143,24 @@ describe.skipIf(!posix)("iOS device adapter (fake pymobiledevice3 + fake helper)
       ["Old iPad", "connected"],
     ]);
     expect(devices[2]).toMatchObject({ connection: "network", osName: "iPadOS", wifi: "on" });
+  });
+
+  it("lists devices without a lockdown session per device per scan; reads each device's details once", async () => {
+    const fresh = new IosDeviceAdapter();
+    await fresh.probe(settings(), signal());
+    fake.reset();
+    const first = await fresh.discover(settings(), signal());
+    await fresh.discover(settings(), signal());
+    expect(first.map((d) => [d.name, d.connection, d.osVersion])).toEqual([
+      ["Test iPhone", "usb", "18.1"],
+      ["Locked Down", "usb", "17.4"],
+      ["Old iPad", "network", "16.7"],
+    ]);
+    const calls = fake.calls();
+    // The full `usbmux list` opens lockdown to every device; scans use the lockdown-free listing.
+    expect(calls).not.toContain("pymobiledevice3 usbmux list");
+    expect(calls.filter((c) => c === "pymobiledevice3 usbmux list --simple -n")).toHaveLength(2);
+    expect(calls.filter((c) => c.startsWith("pymobiledevice3 lockdown info"))).toHaveLength(3);
   });
 
   it("lists devices without waiting on a slow Developer Mode check, then reports it on the next scan", async () => {

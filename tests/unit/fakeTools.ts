@@ -56,13 +56,19 @@ exit 2`,
     `
 case "$1" in
   version) echo "5.1.2"; exit 0 ;;
-  usbmux) cat <<'JSON'
+  usbmux)
+    case "$*" in
+      *"--simple -u"*) echo '["00008110-AAA", "DEVMODE-OFF"]' ;;
+      *"--simple -n"*) echo '["LEGACY-BBB", "DEVMODE-OFF"]' ;;
+      *) cat <<'JSON'
 [{"BuildVersion":"22A3354","ConnectionType":"USB","DeviceClass":"iPhone","DeviceName":"Test iPhone","Identifier":"00008110-AAA","ProductType":"iPhone15,2","ProductVersion":"18.1","UniqueDeviceID":"00008110-AAA"},
  {"ConnectionType":"Network","DeviceClass":"iPad","DeviceName":"Old iPad","ProductType":"iPad8,1","ProductVersion":"16.7","UniqueDeviceID":"LEGACY-BBB"},
  {"ConnectionType":"USB","DeviceClass":"iPhone","DeviceName":"Locked Down","ProductType":"iPhone14,5","ProductVersion":"17.4","UniqueDeviceID":"DEVMODE-OFF"},
  {"ConnectionType":"Network","DeviceClass":"iPhone","DeviceName":"Locked Down","ProductType":"iPhone14,5","ProductVersion":"17.4","UniqueDeviceID":"DEVMODE-OFF"}]
 JSON
-  exit 0 ;;
+      ;;
+    esac
+    exit 0 ;;
   amfi)
     # A device on slow Wi-Fi: the Developer Mode query takes this long.
     if [ -n "$FAKE_AMFI_DELAY" ]; then sleep "$FAKE_AMFI_DELAY"; fi
@@ -70,6 +76,15 @@ JSON
     exit 0 ;;
   mounter) echo "DeveloperDiskImage already mounted"; exit 1 ;;
   lockdown)
+    if [ "$2" = "info" ]; then
+      case "$*" in
+        *00008110-AAA*) echo '{"BuildVersion":"22A3354","DeviceClass":"iPhone","DeviceName":"Test iPhone","ProductType":"iPhone15,2","ProductVersion":"18.1","UniqueDeviceID":"00008110-AAA"}' ;;
+        *LEGACY-BBB*) echo '{"DeviceClass":"iPad","DeviceName":"Old iPad","ProductType":"iPad8,1","ProductVersion":"16.7","UniqueDeviceID":"LEGACY-BBB"}' ;;
+        *DEVMODE-OFF*) echo '{"DeviceClass":"iPhone","DeviceName":"Locked Down","ProductType":"iPhone14,5","ProductVersion":"17.4","UniqueDeviceID":"DEVMODE-OFF"}' ;;
+        *) echo "pymobiledevice3.exceptions.DeviceNotFoundError" >&2; exit 1 ;;
+      esac
+      exit 0
+    fi
     state="${dir}/wifi.state"
     for last; do :; done
     case "$last" in on) echo true > "$state"; exit 0 ;; off) echo false > "$state"; exit 0 ;; esac

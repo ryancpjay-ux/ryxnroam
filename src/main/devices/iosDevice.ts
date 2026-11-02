@@ -103,12 +103,30 @@ interface UsbmuxEntry {
   DeviceClass?: string;
 }
 
-export function parseUsbmuxList(stdout: string): UsbmuxEntry[] {
+function parseJsonArray(stdout: string): unknown[] {
   const start = stdout.indexOf("[");
   const end = stdout.lastIndexOf("]");
   if (start < 0 || end < start) return [];
   const parsed = JSON.parse(stdout.slice(start, end + 1));
   return Array.isArray(parsed) ? parsed : [];
+}
+
+/** `usbmux list --simple`: a JSON array of UDIDs. */
+export function parseUdidList(stdout: string): string[] {
+  return parseJsonArray(stdout).filter((u): u is string => typeof u === "string");
+}
+
+/** `lockdown info`: one JSON object with the device's lockdown values. */
+export function parseLockdownInfo(stdout: string): UsbmuxEntry | null {
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start < 0 || end < start) return null;
+  try {
+    const v = JSON.parse(stdout.slice(start, end + 1));
+    return v && typeof v === "object" ? (v as UsbmuxEntry) : null;
+  } catch {
+    return null;
+  }
 }
 
 export const majorVersion = (v?: string) => Number.parseInt(v ?? "", 10) || 0;
@@ -124,6 +142,9 @@ const CHECK_BUDGET_MS = 1500;
 /** Developer Mode can only change with a restart, so a confirmed "on" is trusted for longer. */
 const DEV_MODE_ON_TTL_MS = 10 * 60_000;
 const CHECK_TTL_MS = 60_000;
+/** Reading a device's name and iOS version takes ~1.5 s over Wi-Fi; it only changes after an update. */
+const INFO_BUDGET_MS = 3000;
+const INFO_TTL_MS = 30 * 60_000;
 
 const within = <T>(p: Promise<T>, ms: number): Promise<T | undefined> =>
   Promise.race([p, new Promise<undefined>((r) => setTimeout(r, ms))]);
@@ -137,6 +158,8 @@ export class IosDeviceAdapter implements DeviceAdapter {
   helperCommand: ((udid: string, mode: string) => { cmd: string; args: string[] } | null) | null = null;
   private wifiCache = new Map<string, { at: number; value: "on" | "off" | null }>();
   private devModeCache = new Map<string, DevModeEntry>();
+  /** Name, model and iOS version per device, read once over lockdown. */
+  private infoCache = new Map<string, { at: number; info: UsbmuxEntry }>();
   /** Per-device checks still running, so overlapping scans share one query instead of starting another. */
   private inFlight = new Map<string, Promise<unknown>>();
 
@@ -181,21 +204,48 @@ export class IosDeviceAdapter implements DeviceAdapter {
 
   async discover(settings: Settings, signal: AbortSignal): Promise<DeviceInfo[]> {
     if (!this.tool) return [];
-    const res = await this.exec(["usbmux", "list"], 20000, signal);
-    if (res.code !== 0) throw new Error((res.stderr || res.stdout).trim().slice(-300) || "usbmux list failed");
-    const entries = parseUsbmuxList(res.stdout);
-    const isNetwork = (e: UsbmuxEntry) => /network|wifi/i.test(e.ConnectionType ?? "");
+    // The plain `usbmux list` opens a lockdown session to every device, one after another, on every
+    // scan — slow over Wi-Fi, and it stalls on a dozing device. Ask usbmuxd for the UDIDs only and
+    // read each device's details once (deviceInfo).
+    const lists = await Promise.all(
+      (["-u", "-n"] as const).map(async (flag) => {
+        const res = await this.exec(["usbmux", "list", "--simple", flag], 20000, signal);
+        if (res.code !== 0) throw new Error((res.stderr || res.stdout).trim().slice(-300) || "usbmux list failed");
+        return parseUdidList(res.stdout);
+      }),
+    );
+    const [usb, network] = lists;
     // A device on a cable and on Wi-Fi is listed twice: keep the USB entry, remember it's reachable over Wi-Fi.
-    entries.sort((a, b) => Number(isNetwork(a)) - Number(isNetwork(b)));
-    const onNetwork = new Set(entries.filter(isNetwork).map((e) => e.UniqueDeviceID || e.Identifier));
-    const seen = new Set<string>();
-    const unique = entries.filter((e) => {
-      const udid = e.UniqueDeviceID || e.Identifier;
-      if (!udid || seen.has(udid)) return false;
-      seen.add(udid);
-      return true;
-    });
-    return Promise.all(unique.map((e) => this.describeDevice(e, isNetwork(e), onNetwork, settings, signal)));
+    const onUsb = new Set(usb);
+    const onNetwork = new Set<string | undefined>(network);
+    const devices = await Promise.all(
+      [...new Set([...usb, ...network])].map(async (udid) => {
+        const info = await this.deviceInfo(udid, signal);
+        return info ? this.describeDevice({ ...info, UniqueDeviceID: udid }, !onUsb.has(udid), onNetwork, settings, signal) : null;
+      }),
+    );
+    return devices.filter((d): d is DeviceInfo => d !== null);
+  }
+
+  /** The device's name, model and iOS version; null until they have been read once. */
+  private async deviceInfo(udid: string, signal: AbortSignal): Promise<UsbmuxEntry | null> {
+    const cached = this.infoCache.get(udid);
+    if (cached && Date.now() - cached.at < INFO_TTL_MS) return cached.info;
+    return this.checked(
+      `info:${udid}`,
+      cached?.info ?? null,
+      async () => {
+        const t0 = Date.now();
+        const res = await this.exec(["lockdown", "info", "--udid", udid], 20000, signal).catch(() => null);
+        const info = res?.code === 0 ? parseLockdownInfo(res.stdout) : null;
+        if (info) {
+          this.infoCache.set(udid, { at: Date.now(), info });
+          log.info(`Read details of ${udid.slice(0, 8)}… in ${Date.now() - t0} ms`);
+        } else log.warn(`Could not read details of ${udid.slice(0, 8)}…: ${(res?.stderr || res?.stdout || "").trim().slice(-200)}`);
+        return info ?? cached?.info ?? null;
+      },
+      INFO_BUDGET_MS,
+    );
   }
 
   private async describeDevice(
@@ -263,13 +313,13 @@ export class IosDeviceAdapter implements DeviceAdapter {
    * Runs `check` for a device at most once at a time and waits for it no longer
    * than the scan budget; until it lands, the last known (or unknown) value is used.
    */
-  private async checked<T>(key: string, stale: T, check: () => Promise<T>): Promise<T> {
+  private async checked<T>(key: string, stale: T, check: () => Promise<T>, budgetMs = CHECK_BUDGET_MS): Promise<T> {
     let running = this.inFlight.get(key) as Promise<T> | undefined;
     if (!running) {
       running = check().finally(() => this.inFlight.delete(key));
       this.inFlight.set(key, running);
     }
-    const done = await within(running, CHECK_BUDGET_MS);
+    const done = await within(running, budgetMs);
     return done === undefined ? stale : done;
   }
 
@@ -337,6 +387,7 @@ export class IosDeviceAdapter implements DeviceAdapter {
     if (action === "recheck") {
       this.devModeCache.delete(device.nativeId);
       this.wifiCache.delete(device.nativeId);
+      this.infoCache.delete(device.nativeId);
       return "Device will be re-checked on the next scan.";
     }
     if (!this.tool) throw new Error("pymobiledevice3 is not available");
