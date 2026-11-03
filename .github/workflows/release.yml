@@ -1,5 +1,6 @@
-# Builds installers on tag push (v*) and uploads them to a DRAFT GitHub release in this repository.
-# Publishing the draft is the approval step that makes the update visible to installed apps.
+# Builds installers on tag push (v*) and publishes them as a GitHub release in this repository.
+# The release stays a draft until both the Mac and Windows installers are uploaded, then it is
+# published, which is what makes the update visible to installed apps.
 name: Release
 on:
   push:
@@ -8,8 +9,30 @@ on:
 permissions:
   contents: write
 
+env:
+  GH_REPO: ${{ github.repository }}
+  TAG: ${{ github.ref_name }}
+
 jobs:
+  # One draft up front, so the Mac and Windows jobs upload to the same release instead of racing to create two.
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+          elif [ -f "docs/releases/$TAG.md" ]; then
+            gh release create "$TAG" --draft --verify-tag --title "ryxnroam $TAG" --notes-file "docs/releases/$TAG.md"
+          else
+            gh release create "$TAG" --draft --verify-tag --title "ryxnroam $TAG" --generate-notes
+          fi
+
   mac:
+    needs: draft
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +40,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
-      - name: Build, sign (if a certificate is configured) and publish draft
+      - name: Build, sign (if a certificate is configured) and upload to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
@@ -31,10 +54,14 @@ jobs:
             npx electron-builder --mac --arm64 --x64 --publish always -c.mac.notarize=true
           else
             echo "::warning::No Apple signing credentials; producing an ad-hoc signed, un-notarized build."
+            # An unset secret arrives as an empty string, which electron-builder reads as a
+            # certificate path (the working directory) and fails with "not a file".
+            unset CSC_LINK CSC_KEY_PASSWORD
             npx electron-builder --mac --arm64 --x64 --publish always -c.mac.identity=- -c.mac.hardenedRuntime=false
           fi
 
   windows:
+    needs: draft
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +69,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm test
-      - name: Build and publish draft
+      - name: Build and upload to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -50,3 +77,18 @@ jobs:
         run: |
           npm run build
           npx electron-builder --win --x64 --publish always
+
+  publish:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish once every installer is attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          echo "$assets"
+          for name in ryxnroam-mac-arm64.dmg ryxnroam-mac-x64.dmg ryxnroam-windows-x64-setup.exe latest-mac.yml latest.yml; do
+            echo "$assets" | grep -qx "$name" || { echo "::error::$name is missing from $TAG; leaving it as a draft."; exit 1; }
+          done
+          gh release edit "$TAG" --draft=false --latest

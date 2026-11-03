@@ -27,8 +27,8 @@ publish:
   - provider: github
     owner: ryancpjay-ux
     repo: ryxnroam
-    # Draft releases stay invisible to the in-app updater until you publish them,
-    # which is how an update gets "approved".
+    # Uploads go to a draft, invisible to the in-app updater; the release workflow
+    # publishes it once both the Mac and Windows installers are attached.
     releaseType: draft
 
 mac:
@@ -51,6 +51,8 @@ mac:
     NSHighResolutionCapable: true
 
 dmg:
+  # No version in the name, so .../releases/latest/download/<name> always gets the newest.
+  artifactName: ${productName}-mac-${arch}.${ext}
   title: ${productName} ${version}
   contents:
     - x: 150
@@ -69,6 +71,7 @@ win:
   requestedExecutionLevel: asInvoker
 
 nsis:
+  artifactName: ${productName}-windows-${arch}-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

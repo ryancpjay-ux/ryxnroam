@@ -6,20 +6,36 @@ ryxnroam is a separate application from ryxnontop, built with ryxnontop's design
 
 > Use ryxnroam only on devices and test environments you own or are authorized to test. It does not bypass device security, managed-device restrictions, parental controls or location-sharing safeguards, and it never runs a simulation without showing it.
 
+## Download
+
+| Platform | Installer |
+| --- | --- |
+| macOS 12+, Apple silicon (M1 and later) | [**ryxnroam-mac-arm64.dmg**](https://github.com/ryancpjay-ux/ryxnroam/releases/latest/download/ryxnroam-mac-arm64.dmg) |
+| macOS 12+, Intel | [**ryxnroam-mac-x64.dmg**](https://github.com/ryancpjay-ux/ryxnroam/releases/latest/download/ryxnroam-mac-x64.dmg) |
+| Windows 10/11, 64-bit | [**ryxnroam-windows-x64-setup.exe**](https://github.com/ryancpjay-ux/ryxnroam/releases/latest/download/ryxnroam-windows-x64-setup.exe) |
+
+These links always fetch the newest release; older versions are on the [Releases page](https://github.com/ryancpjay-ux/ryxnroam/releases). The builds are **not signed or notarized** yet, so the first launch shows a warning:
+
+* **macOS:** drag ryxnroam to Applications. If macOS says it can't verify the app, open **System Settings › Privacy & Security** and click **Open Anyway**.
+* **Windows:** if SmartScreen appears, click **More info › Run anyway**.
+
+To drive an iPhone or iPad, also install pymobiledevice3 (see [Device tooling](#device-tooling-install-only-what-you-need)).
+
 ---
 
 ## Contents
 
-1. [Install & build](#install--build)
-2. [Compatibility](#compatibility)
-3. [Using ryxnroam](#using-ryxnroam)
-4. [Feature checklist](#feature-checklist)
-5. [Architecture](#architecture)
-6. [Testing](#testing)
-7. [Packaging & releases](#packaging--releases)
-8. [Privacy & security](#privacy--security)
-9. [Known limitations](#known-limitations)
-10. [Licensing](#licensing)
+1. [Download](#download)
+2. [Install & build](#install--build)
+3. [Compatibility](#compatibility)
+4. [Using ryxnroam](#using-ryxnroam)
+5. [Feature checklist](#feature-checklist)
+6. [Architecture](#architecture)
+7. [Testing](#testing)
+8. [Packaging & releases](#packaging--releases)
+9. [Privacy & security](#privacy--security)
+10. [Known limitations](#known-limitations)
+11. [Licensing](#licensing)
 
 ---
 
@@ -49,7 +65,7 @@ node node_modules/electron/install.js
 | Windows x64 NSIS installer | `npm run package:win` |
 | Unpacked app for the current platform | `npm run package:dir` |
 
-Output goes to `release/`. Ad-hoc signed builds run on the machine that built them; on another Mac, Gatekeeper blocks them until you right-click › Open (or remove the quarantine flag), because they are not notarized. An unpacked `package:dir` build can be ad-hoc signed by hand:
+Output goes to `release/`. Ad-hoc signed builds run on the machine that built them; on another Mac, Gatekeeper blocks them until you click **Open Anyway** in System Settings › Privacy & Security, because they are not notarized. An unpacked `package:dir` build can be ad-hoc signed by hand:
 
 ```bash
 codesign --force --deep --sign - release/mac-arm64/ryxnroam.app
@@ -168,7 +184,7 @@ Configuration: [electron-builder.yml](electron-builder.yml), [build/entitlements
 
 * **macOS**: DMG + ZIP for arm64 and x64, hardened runtime, minimum macOS 12. Appears in the Dock and in screen recordings like any normal app.
 * **Windows**: x64 NSIS installer, per-user, choosable directory, Start-menu and desktop shortcuts, standard uninstaller in *Apps & features* (saved data in `%APPDATA%\ryxnroam` is kept; delete that folder to remove it).
-* **Releases**: push a `v*` tag to the **ryxnroam** repository (`github.com/ryancpjay-ux/ryxnroam`, to be created — nothing is published to ryxnontop's repository). The workflow tests, builds and uploads to a **draft** release. Publishing the draft is the approval step; only then do installed apps see it.
+* **Releases**: bump `version` in package.json, add notes at `docs/releases/v<version>.md`, then push a `v*` tag to the **ryxnroam** repository (`github.com/ryancpjay-ux/ryxnroam` — nothing is published to ryxnontop's repository). The workflow creates a **draft** release, tests and builds on macOS and Windows, uploads to the draft, and publishes it only once both DMGs and the EXE are attached. Pushing the tag is the approval step; installed apps see the update once it is published. Installer names carry no version, so the README's `releases/latest/download/…` links keep working.
 * **Signing/notarization**: happens only when the repository secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (and `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` for Windows) exist. Without them the workflow says so and produces unsigned builds. **No build produced so far has been signed with a Developer ID or notarized.**
 
 ## Privacy & security
